@@ -1,165 +1,136 @@
-# %%
-import numpy as np
 import matplotlib.pyplot as plt
-from quantumwalks import run_quantum_walk_simulation
+from typing import Tuple, Optional, Dict
+import numpy as np
 from quantumwalks.discrete_walk import QuantumWalk
-from quantumwalks.utils.operators import create_shift_operators
+from quantumwalks.utils.operators import create_parametric_coin, CoinSchedule
 
-def create_custom_coin(alpha: float, beta: float, gamma: float) -> np.ndarray:
-    """
-    Create a custom coin operator U(α,β,γ) using vectorized operations.
-    """
-    return np.array([
-        [np.exp(1j * alpha) * np.cos(beta), -np.exp(-1j * gamma) * np.sin(beta)],
-        [np.exp(1j * gamma) * np.sin(beta), np.exp(-1j * alpha) * np.cos(beta)]
-    ], dtype=np.complex128)
+def calculate_lr_difference(prob: np.ndarray, max_steps: int) -> float:
+    """Calculate P_L - P_R from probability distribution"""
+    # Create positions array for the full range
+    positions = np.arange(-max_steps, max_steps + 1)
+    assert len(positions) == len(prob), f"Position array size {len(positions)} doesn't match probability array size {len(prob)}"
 
-def calculate_lr_difference_alternating_coins(qw: QuantumWalk, coin_A: np.ndarray, coin_B: np.ndarray) -> np.ndarray:
-    """
-    Calculate P_L - P_R for each step of the walk using alternating coins A and B.
-    """
-    # Initialize state
-    posn0 = np.zeros(qw.P)
-    posn0[qw.N] = 1
-    psi = np.kron(posn0, qw.initial_coin_state)
+    P_L = np.sum(prob[positions < 0])
+    P_R = np.sum(prob[positions > 0])
+    return P_L - P_R
 
-    # Pre-allocate arrays
-    differences = np.zeros(qw.N + 1)
-    positions = np.arange(-qw.N, qw.N + 1)
+def compare_coin_configurations_over_time(
+    max_steps: int,
+    coin_A_params: Tuple[float, float, float],
+    coin_B_params: Tuple[float, float, float],
+    initial_state: Optional[np.ndarray] = None
+) -> Dict[str, np.ndarray]:
+    """Compare P_L - P_R evolution for different coin configurations"""
 
-    # Create measurement operators matrix once
-    measurement_ops = np.array([
-        np.kron(np.outer(np.eye(qw.P)[i], np.eye(qw.P)[i]), np.eye(2))
-        for i in range(qw.P)
-    ])
+    # Create coin operators
+    alpha_A, beta_A, gamma_A = coin_A_params
+    alpha_B, beta_B, gamma_B = coin_B_params
 
-    # Create shift operators using the utility function
-    shift_plus, shift_minus = create_shift_operators(qw.P)
-    shift_op = (np.kron(shift_plus, np.outer(qw.coin0, qw.coin0)) +
-                np.kron(shift_minus, np.outer(qw.coin1, qw.coin1)))
+    coin_A = create_parametric_coin(alpha_A, beta_A, gamma_A)
+    coin_B = create_parametric_coin(alpha_B, beta_B, gamma_B)
 
-    # Calculate evolution operators for both coins
-    U_A = shift_op @ np.kron(np.eye(qw.P), coin_A)
-    U_B = shift_op @ np.kron(np.eye(qw.P), coin_B)
+    differences = {
+        'A': np.zeros(max_steps),
+        'B': np.zeros(max_steps),
+        'AB': np.zeros(max_steps)
+    }
 
-    # Calculate for each step
-    for step in range(qw.N + 1):
-        # Vectorized probability calculation
-        projections = measurement_ops @ psi
-        prob = np.real(np.sum(projections * np.conjugate(projections), axis=1))
+    # Simulate each configuration once
+    # Coin A
+    fixed_schedule_A = CoinSchedule("fixed", coins={"default": coin_A.toarray()})
+    qw_A = QuantumWalk(num_steps=max_steps, coin_schedule=fixed_schedule_A, initial_coin_state=initial_state)
+    _, _, prob_history_A = qw_A.simulate()
 
-        # Vectorized P_L and P_R calculation
-        P_L = np.sum(prob[positions < 0])
-        P_R = np.sum(prob[positions >= 0])
-        differences[step] = P_L - P_R
+    # Coin B
+    fixed_schedule_B = CoinSchedule("fixed", coins={"default": coin_B.toarray()})
+    qw_B = QuantumWalk(num_steps=max_steps, coin_schedule=fixed_schedule_B, initial_coin_state=initial_state)
+    _, _, prob_history_B = qw_B.simulate()
 
-        # Evolve state with alternating coin operators
-        if step < qw.N:
-            if step % 2 == 0:
-                psi = U_A @ psi  # Apply coin A
-            else:
-                psi = U_B @ psi  # Apply coin B
+    # Alternating coins
+    alternating_schedule = CoinSchedule("alternating", coins={"A": coin_A.toarray(), "B": coin_B.toarray()})
+    qw_AB = QuantumWalk(num_steps=max_steps, coin_schedule=alternating_schedule, initial_coin_state=initial_state)
+    _, _, prob_history_AB = qw_AB.simulate()
 
-    return differences, prob  # Return both differences and final probability distribution
+    # Calculate P_L - P_R for each step
+    for step in range(max_steps):
+        differences['A'][step] = calculate_lr_difference(prob_history_A[step+1], max_steps)
+        differences['B'][step] = calculate_lr_difference(prob_history_B[step+1], max_steps)
+        differences['AB'][step] = calculate_lr_difference(prob_history_AB[step+1], max_steps)
 
-def run_simulation_alternating_coins(steps: int, 
-                                   alpha_A: float, beta_A: float, gamma_A: float,
-                                   alpha_B: float, beta_B: float, gamma_B: float):
-    """
-    Run simulation with alternating coins A and B.
-    """
-    # Create both coin operators
-    coin_A = create_custom_coin(alpha_A, beta_A, gamma_A)
-    coin_B = create_custom_coin(alpha_B, beta_B, gamma_B)
-    initial_state = np.array([1, -1], dtype=np.complex128) / np.sqrt(2)
+    return differences
 
-    print(f"Running quantum walk simulation with alternating coins:")
-    print(f"Coin A parameters: α={alpha_A:.2f}, β={beta_A:.2f}, γ={gamma_A:.2f}")
-    print(f"Coin B parameters: α={alpha_B:.2f}, β={beta_B:.2f}, γ={gamma_B:.2f}")
-
-    # Create quantum walk object (using coin_A as default)
-    qw = QuantumWalk(steps, initial_state, coin_A)
-
-    # Calculate differences and probabilities using alternating coins
-    differences, prob = calculate_lr_difference_alternating_coins(qw, coin_A, coin_B)
-
-    # Plot results
-    plot_results(qw, prob, 0.0, differences, steps)  # Using 0.0 as execution time placeholder
-
-    return qw, differences, prob
-
-def plot_results(qw: QuantumWalk, prob: np.ndarray,
-                exec_time: float, differences: np.ndarray, steps: int):
-    """
-    Plot both probability distribution and P_L - P_R differences.
-    """
-    # Plot probability distribution
-    positions = np.arange(-qw.N, qw.N + 1)
-    
+def plot_lr_differences(
+    differences: Dict[str, np.ndarray],
+    coin_params: Dict[str, Tuple[float, float, float]],
+    max_steps: int
+):
+    """Plot P_L - P_R evolution for different configurations"""
     plt.figure(figsize=(12, 8))
-    plt.plot(positions, prob, 'b-', label='Probability', linewidth=1.5)
-    plt.plot(positions, prob, 'ro', markersize=4)
-    plt.fill_between(positions, prob, alpha=0.3)
-    plt.grid(True, alpha=0.3)
-    plt.xlabel('Position', fontsize=12)
-    plt.ylabel('Probability', fontsize=12)
-    plt.title(f'Quantum Walk Distribution after {steps} steps\n(Alternating Coins)', fontsize=14)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    steps = np.arange(1, max_steps + 1)
 
-    # Plot P_L - P_R differences
-    plt.figure(figsize=(12, 8))
-    x = np.arange(steps + 1)
-    plt.plot(x, differences, 'b-', label='P_L - P_R', linewidth=1.5)
-    plt.plot(x, differences, 'ro', markersize=4)
+    # Convert angles to degrees for display
+    def to_degrees(angles):
+        return tuple(np.degrees(angle) for angle in angles)
 
-    # Set y-axis range from -1 to 1
-    plt.ylim(-1, 1)
+    plt.plot(steps, differences['A'], 'r-',
+             label=f'Coin A (α={to_degrees(coin_params["A"])[0]:.1f}°, β={to_degrees(coin_params["A"])[1]:.1f}°, γ={to_degrees(coin_params["A"])[2]:.1f}°)',
+             alpha=0.7)
+    plt.plot(steps, differences['B'], 'g-',
+             label=f'Coin B (α={to_degrees(coin_params["B"])[0]:.1f}°, β={to_degrees(coin_params["B"])[1]:.1f}°, γ={to_degrees(coin_params["B"])[2]:.1f}°)',
+             alpha=0.7)
+    plt.plot(steps, differences['AB'], 'b-',
+             label='Alternating A-B',
+             alpha=0.7)
 
     plt.grid(True, alpha=0.3)
-    plt.xlabel('Step', fontsize=12)
+    plt.xlabel('Number of Steps', fontsize=12)
     plt.ylabel('P_L - P_R', fontsize=12)
-    plt.title('Difference between Left and Right Probabilities\n(Alternating Coins)', fontsize=14)
+    plt.title('Evolution of Left-Right Probability Difference', fontsize=14)
     plt.legend()
+
+    # Add mean values
+    mean_text = []
+    for config in ['A', 'B', 'AB']:
+        mean_diff = np.mean(differences[config])
+        mean_text.append(f"{config}: Mean={mean_diff:.4f}")
+
+    plt.text(0.02, 0.98, '\n'.join(mean_text),
+             transform=plt.gca().transAxes,
+             bbox=dict(facecolor='white', alpha=0.8),
+             verticalalignment='top')
+
     plt.tight_layout()
     plt.show()
-
-
-# %%
 
 if __name__ == "__main__":
     # Set parameters
-    steps = 800
-    
-    # Parameters for Coin A
-    alpha_A = -51.0/180 * np.pi  # Converting to radians
-    beta_A = 45.0/180 * np.pi
-    gamma_A = 0.0/180 * np.pi
-    
-    # Parameters for Coin B
-    alpha_B = 0.0/180 * np.pi
-    beta_B = 88.0/180 * np.pi
-    gamma_B = -16.0/180 * np.pi
+    max_steps = 50  # Reduced number of steps for faster computation
 
-    # Run simulation with alternating coins
-    qw, differences, prob = run_simulation_alternating_coins(
-        steps, 
-        alpha_A, beta_A, gamma_A,
-        alpha_B, beta_B, gamma_B
+    # Parameters for Coin A (in radians)
+    coin_A_params = (-51.0/180 * np.pi,  # alpha
+                     45.0/180 * np.pi,   # beta
+                      0.0/180 * np.pi)   # gamma
+
+    # Parameters for Coin B (in radians)
+    coin_B_params = (0.0/180 * np.pi,    # alpha
+                    88.0/180 * np.pi,    # beta
+                   -16.0/180 * np.pi)    # gamma
+
+    # Initial coin state
+    initial_state = np.array([1, -1], dtype=np.complex128) / np.sqrt(2)
+
+    # Calculate P_L - P_R evolution
+    differences = compare_coin_configurations_over_time(
+        max_steps=max_steps,
+        coin_A_params=coin_A_params,
+        coin_B_params=coin_B_params,
+        initial_state=initial_state
     )
 
-    # Print some statistics
-    positions = np.arange(-qw.N, qw.N + 1)
-    mean_pos = np.average(positions, weights=prob)
-    std_dev = np.sqrt(np.average((positions - mean_pos)**2, weights=prob))
-    
-    print("\nFinal Statistics:")
-    print(f"Mean Position: {mean_pos:.4f}")
-    print(f"Standard Deviation: {std_dev:.4f}")
-    print(f"Max Probability: {np.max(prob):.4f}")
+    # Plot results
+    coin_params = {
+        "A": coin_A_params,
+        "B": coin_B_params
+    }
 
-# %%
-
-
-
+    plot_lr_differences(differences, coin_params, max_steps)

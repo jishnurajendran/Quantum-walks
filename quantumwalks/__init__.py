@@ -1,3 +1,4 @@
-from .discrete_walk import QuantumWalk, run_quantum_walk_simulation
+from .discrete_walk import QuantumWalk
 
-__all__ = ['QuantumWalk', 'run_quantum_walk_simulation']
+__version__ = '0.1.0'
+__all__ = ['QuantumWalk']

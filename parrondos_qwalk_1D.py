@@ -32,7 +32,7 @@ def compare_coin_configurations_over_time(
     differences = {
         'A': np.zeros(max_steps),
         'B': np.zeros(max_steps),
-        'AB': np.zeros(max_steps)
+        'ABAB': np.zeros(max_steps)
     }
 
     # Simulate each configuration once
@@ -55,7 +55,7 @@ def compare_coin_configurations_over_time(
     for step in range(max_steps):
         differences['A'][step] = calculate_lr_difference(prob_history_A[step+1], max_steps)
         differences['B'][step] = calculate_lr_difference(prob_history_B[step+1], max_steps)
-        differences['AB'][step] = calculate_lr_difference(prob_history_AB[step+1], max_steps)
+        differences['ABAB'][step] = calculate_lr_difference(prob_history_AB[step+1], max_steps)
 
     return differences
 
@@ -78,7 +78,7 @@ def plot_lr_differences(
     plt.plot(steps, differences['B'], 'g-',
              label=f'Coin B (α={to_degrees(coin_params["B"])[0]:.1f}°, β={to_degrees(coin_params["B"])[1]:.1f}°, γ={to_degrees(coin_params["B"])[2]:.1f}°)',
              alpha=0.7)
-    plt.plot(steps, differences['AB'], 'b-',
+    plt.plot(steps, differences['ABAB'], 'b-',
              label='Alternating A-B',
              alpha=0.7)
 
@@ -88,13 +88,13 @@ def plot_lr_differences(
     plt.title('Evolution of Left-Right Probability Difference', fontsize=14)
     plt.legend()
 
-    # Add mean values
-    mean_text = []
-    for config in ['A', 'B', 'AB']:
-        mean_diff = np.mean(differences[config])
-        mean_text.append(f"{config}: Mean={mean_diff:.4f}")
+    # Add median values
+    median_text = []
+    for config in ['A', 'B', 'ABAB']:
+        median_diff = np.median(differences[config])
+        median_text.append(f"{config}: Median={median_diff:.4f}")
 
-    plt.text(0.02, 0.98, '\n'.join(mean_text),
+    plt.text(0.02, 0.98, '\n'.join(median_text),
              transform=plt.gca().transAxes,
              bbox=dict(facecolor='white', alpha=0.8),
              verticalalignment='top')
@@ -104,7 +104,7 @@ def plot_lr_differences(
 
 if __name__ == "__main__":
     # Set parameters
-    max_steps = 50  # Reduced number of steps for faster computation
+    max_steps = 800  # Reduced number of steps for faster computation
 
     # Parameters for Coin A (in radians)
     coin_A_params = (-51.0/180 * np.pi,  # alpha

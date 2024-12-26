@@ -1,0 +1,43 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: Quantum games with Quantum walks Creators
+message: >-
+  This is used in article: Implementing Parrondo’s paradox
+  with two-coin quantum walks and Playing a true Parrondo's
+  game with a three-state coin on a quantum walk
+type: software
+authors:
+  - given-names: Jishnu
+    family-names: Rajendran
+    email: jishnu.rajendran@dfa.unict.it
+    orcid: 'https://orcid.org/0000-0003-2598-1266'
+repository-code: 'https://github.com/jishnurajendran/Quantum-walks/'
+url: 'https://doi.org/10.5281/zenodo.14559715'
+abstract: >-
+  Parrondo’s paradox is ubiquitous in games, ratchets and
+  random walks. The apparent paradox, devised by J. M. R.
+  Parrondo, that two losing games A and B can produce a
+  winning outcome has been adapted in many physical and
+  biological systems to explain their working. However,
+  proposals on demonstrating Parrondo’s paradox using
+  quantum walks failed for a large number of steps. In this
+  work, we show that instead of a single coin if we consider
+  a two-coin initial state which may or may not be
+  entangled, we can observe a genuine Parrondo’s paradox
+  with quantum walks. Furthermore, we focus on reasons for
+  this and pin down the asymmetry in initial two-coin state
+  or asymmetry in shift operator, either of which is
+  necessary for observing a genuine Parrondo’s paradox. We
+  extend our work to a three-coin initial state too with
+  similar results. The implications of our work for
+  observing quantum ratchet-like behaviour using quantum
+  walks are also discussed.
+keywords:
+  - quantum walk
+  - quantum algorithm
+  - quantum game theory
+  - parrondo's paradox
+license: MIT-Modern-Variant
+date-released: '2018-08-15'

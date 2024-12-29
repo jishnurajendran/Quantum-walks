@@ -143,7 +143,7 @@ class QuantumWalk:
         shift_plus, shift_minus = create_sparse_shift_operators(self.P, self.custom_shift)
         eye_P = csc_matrix(np.eye(self.P))
 
-        # Store states and probabilities if requested
+        # Store states and probabilities if needed
         states = [psi.toarray()] if store_states else None
         prob_history = [self.calculate_probabilities(psi)]
 
@@ -205,7 +205,7 @@ class QuantumWalk:
             "variance": variance,
             "max_probability": np.max(prob),
             "min_probability": np.min(prob),
-            "entropy": -np.sum(prob * np.log2(prob + 1e-15))
+            "entropy": 0 - np.sum(prob * np.log2(prob + 1e-15))
         }
 
     def plot_results(self, prob: np.ndarray, exec_time: float):

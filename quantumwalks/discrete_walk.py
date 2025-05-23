@@ -218,3 +218,210 @@ class QuantumWalk:
         """
         positions = np.arange(-self.N, self.N + 1)
         plot_distribution(positions, prob, self.N, exec_time)
+
+class TwoQubitQuantumWalk:
+    """
+    Quantum Walk implementation with two coin qubits.
+    The total coin space is 4-dimensional (|00⟩, |01⟩, |10⟩, |11⟩).
+    """
+
+    def __init__(self,
+                 num_steps: int,
+                 initial_position: Optional[Union[int, np.ndarray]] = None,
+                 initial_coin_state: Optional[np.ndarray] = None,
+                 coin1: Optional[np.ndarray] = None,
+                 coin2: Optional[np.ndarray] = None):
+        """
+        Initialize Two-Qubit Quantum Walk.
+
+        Args:
+            num_steps (int): Number of steps for the walk
+            initial_position (Optional[Union[int, np.ndarray]]): Initial position
+            initial_coin_state (Optional[np.ndarray]): Initial 4D coin state
+            coin1 (Optional[np.ndarray]): First coin operator
+            coin2 (Optional[np.ndarray]): Second coin operator
+        """
+        if num_steps < 1:
+            raise ValueError("Number of steps must be positive")
+
+        self.N = num_steps
+        self.P = 2 * num_steps + 1
+
+        # Create initial position state
+        self.posn0, _ = create_initial_state(self.P, initial_position)
+
+        # Create or validate initial coin state (4D)
+        if initial_coin_state is None:
+            # Default to (|00⟩ + |01⟩ + |10⟩ + |11⟩)/2
+            self.initial_coin_state = csc_matrix(
+                np.ones(4, dtype=np.complex128).reshape(-1, 1) / 2
+            )
+        else:
+            if len(initial_coin_state) != 4:
+                raise ValueError("Initial coin state must be 4-dimensional")
+            if not np.allclose(np.linalg.norm(initial_coin_state), 1):
+                raise ValueError("Initial coin state must be normalized")
+            self.initial_coin_state = csc_matrix(
+                np.asarray(initial_coin_state, dtype=np.complex128).reshape(-1, 1)
+            )
+
+        # Create basis states for the 4D coin space
+        self.basis_states = [
+            csc_matrix(state.reshape(-1, 1))
+            for state in np.eye(4, dtype=np.complex128)
+        ]
+
+        # Set coin operators
+        self.coin1 = coin1 if coin1 is not None else create_hadamard().toarray()
+        self.coin2 = coin2 if coin2 is not None else create_hadamard().toarray()
+
+    def _validate_quantum_state(self, state: csc_matrix) -> None:
+        """
+        Verify quantum state properties.
+
+        Args:
+            state (csc_matrix): State to validate
+
+        Raises:
+            ValueError: If state is invalid
+        """
+        state_dense = state.toarray().flatten()
+
+        # Check normalization
+        norm = np.sum(np.abs(state_dense)**2)
+        if not np.allclose(norm, 1.0, atol=1e-10):
+            raise ValueError(f"State not normalized: norm = {norm}")
+
+        # Check state vector size (4 coin states per position)
+        expected_size = self.P * 4
+        if state_dense.size != expected_size:
+            raise ValueError(f"Invalid state size: {state_dense.size}, expected {expected_size}")
+
+    def create_two_qubit_coin(self, coin1: np.ndarray, coin2: np.ndarray) -> csc_matrix:
+        """
+        Create combined two-qubit coin operator from individual coin operators.
+
+        Args:
+            coin1 (np.ndarray): First coin operator (2x2)
+            coin2 (np.ndarray): Second coin operator (2x2)
+
+        Returns:
+            csc_matrix: Combined 4x4 coin operator
+        """
+        return kron(csc_matrix(coin1), csc_matrix(coin2))
+
+    def create_four_way_shift(self) -> csc_matrix:
+        """
+        Create shift operator for four-way movement based on coin state.
+
+        Returns:
+            csc_matrix: Shift operator
+        """
+        # Create basic shift operators
+        shift_right = np.roll(np.eye(self.P), 1, axis=0)
+        shift_left = np.roll(np.eye(self.P), -1, axis=0)
+        stay = np.eye(self.P)
+
+        # Create projectors onto coin basis states
+        P00 = self.basis_states[0].dot(self.basis_states[0].T.conjugate())
+        P01 = self.basis_states[1].dot(self.basis_states[1].T.conjugate())
+        P10 = self.basis_states[2].dot(self.basis_states[2].T.conjugate())
+        P11 = self.basis_states[3].dot(self.basis_states[3].T.conjugate())
+
+        # Combine shift operators with corresponding coin projectors
+        shift_op = (kron(csc_matrix(shift_right), P00) +  # |00⟩ → right
+                   kron(csc_matrix(stay), P01) +          # |01⟩ → stay
+                   kron(csc_matrix(stay), P10) +          # |10⟩ → stay
+                   kron(csc_matrix(shift_left), P11))     # |11⟩ → left
+
+        return shift_op
+
+    def simulate(self, num_steps: Optional[int] = None) -> Tuple[np.ndarray, float, list]:
+        """Perform quantum walk simulation with two coin qubits."""
+        start_time = time.time()
+
+        if num_steps is not None:
+            self.N = num_steps
+
+        # Initialize state
+        psi = kron(self.posn0, self.initial_coin_state)
+        self._validate_quantum_state(psi)
+
+        # Create combined coin operator for the entire system
+        coin_op = kron(csc_matrix(np.eye(self.P)),
+                       self.create_two_qubit_coin(self.coin1, self.coin2))
+
+        # Create shift operator
+        shift_op = self.create_four_way_shift()
+
+        # Store probability history
+        prob_history = [self.calculate_probabilities(psi)]
+
+        # Evolution
+        for _ in tqdm(range(self.N), desc="Evolution"):
+            # Apply coin
+            psi = coin_op.dot(psi)
+
+            # Apply shift
+            psi = shift_op.dot(psi)
+
+            self._validate_quantum_state(psi)
+            prob_history.append(self.calculate_probabilities(psi))
+
+        execution_time = time.time() - start_time
+        return self.calculate_probabilities(psi), execution_time, prob_history
+
+    def calculate_probabilities(self, psi: csc_matrix) -> np.ndarray:
+        """
+        Calculate position probabilities from state vector.
+
+        Args:
+            psi (csc_matrix): Quantum state vector
+
+        Returns:
+            np.ndarray: Position probability distribution
+        """
+        psi_dense = psi.toarray().flatten()
+        prob = np.zeros(self.P)
+
+        # Sum probabilities for all four coin states at each position
+        for k in range(self.P):
+            coin_states = psi_dense[k*4:(k+1)*4]
+            prob[k] = np.sum(np.abs(coin_states)**2)
+
+        return prob
+
+    def analyze_statistics(self, prob: np.ndarray) -> dict:
+        """
+        Analyze statistical properties of the two-qubit quantum walk.
+
+        Args:
+            prob (np.ndarray): Probability distribution
+
+        Returns:
+            dict: Statistical measures
+        """
+        positions = np.arange(-self.N, self.N + 1)
+        mean_position = np.average(positions, weights=prob)
+        variance = np.average((positions - mean_position)**2, weights=prob)
+        std_dev = np.sqrt(variance)
+
+        return {
+            "mean_position": mean_position,
+            "standard_deviation": std_dev,
+            "variance": variance,
+            "max_probability": np.max(prob),
+            "min_probability": np.min(prob),
+            "entropy": 0 - np.sum(prob * np.log2(prob + 1e-15))
+        }
+
+    def plot_results(self, prob: np.ndarray, exec_time: float):
+        """
+        Plot results of the two-qubit quantum walk.
+
+        Args:
+            prob (np.ndarray): Probability distribution
+            exec_time (float): Execution time
+        """
+        positions = np.arange(-self.N, self.N + 1)
+        plot_distribution(positions, prob, self.N, exec_time)
